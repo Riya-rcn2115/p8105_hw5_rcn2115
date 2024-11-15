@@ -1,0 +1,178 @@
+---
+title: "p8105_hw5_rcn2115"
+author: "Riya Nadkarni"
+date: "2024-11-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(knitr)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+
+## Problem 1 
+
+
+```{r}
+birthday_sim = function(n) {
+  birthdays = sample(1:365, size = n, replace = TRUE)
+  duplicate = length(unique(birthdays)) < n 
+  return(duplicate)
+}
+```
+
+
+```{r}
+sim_results_df =
+  expand_grid(n = 2:50,
+              iter = 1:10000) %>% 
+  mutate(res = map_lgl(n, birthday_sim)) %>% 
+  group_by(n) %>% 
+  summarize(prob = mean(res))
+```
+
+
+```{r}
+sim_results_df %>% 
+  ggplot(aes(x = n, y = prob)) +
+  geom_line() +
+  labs(title = "Probability of a Shared Birthday in the Group",
+       x = "Group Size",
+       y = "Probability of a Shared Birthday")
+```
+
+As the group size increases, the probability of a shared birthday increases. When the group size is 50, the probability of having a shared birthday is almost 1. 
+
+## Problem 2
+
+```{r}
+n <- 30         
+sigma = 5     
+mu_values = 0:6  
+alpha = 0.05   
+num_simulations = 5000 
+
+results = data.frame()
+
+set.seed(123)  
+
+for (mu in mu_values) {
+  sim_results = replicate(num_simulations, {
+    x = rnorm(n, mean = mu, sd = sigma)  
+    test = t.test(x, mu = 0)  
+    tidy_result = broom::tidy(test)  
+    
+    c(estimate = tidy_result$estimate, p.value = tidy_result$p.value)
+  })
+  
+  sim_results = as.data.frame(t(sim_results))
+  colnames(sim_results) = c("estimate", "p.value")
+  sim_results$mu = mu  
+  results = rbind(results, sim_results) 
+}
+
+power_data = results %>%
+  group_by(mu) %>%
+  summarize(
+    power = mean(p.value < alpha),
+    avg_estimate = mean(estimate),
+    avg_estimate_rejected = mean(estimate[p.value < alpha])
+  )
+
+ggplot(power_data, aes(x = mu, y = power)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Power vs. True Mean (Effect Size)", 
+       x = "True Mean (μ)", 
+       y = "Power (Proportion of Null Rejections)")
+
+```
+
+Power increases as the true mean (effect size) increases. The power approaches 1 when the true mean is 4.
+
+```{r}
+ggplot(power_data, aes(x = mu)) +
+  geom_line(aes(y = avg_estimate), color = "blue", linetype = "dashed", size = 1) +
+  geom_line(aes(y = avg_estimate_rejected), color = "red", size = 1) +
+  labs(title = "Average Estimate of μ vs. True Mean (μ)",
+       x = "True Mean (μ)",
+       y = "Average Estimate of μ")
+```
+
+The sample average of μ hat across tests for which the null is rejected is not equal to the true value of μ. When the null hypothesis is rejected, the sample averages tend to be somewhat higher than the true μ, especially when the effect size is between 0 and 4 (smaller true mean values). As the true μ increases, this bias reduces because larger true effects are more likely to yield a significant result naturally, without the need for extreme values.
+
+## Problem 3
+
+```{r}
+homicide = read_csv("homicide-data.csv") %>%
+janitor::clean_names() %>% 
+  mutate(city_state = str_c(city, state, sep = ", ")) %>%
+  group_by(city_state) %>%
+  summarize(
+    total_homicides = n(),
+    unsolved_homicides = sum(disposition %in% c("Closed without arrest", "Open/No arrest"))
+  )
+
+```
+
+```{r}
+baltimore_data = homicide %>% 
+  filter(city_state == "Baltimore, MD")
+
+baltimore_test = prop.test(baltimore_data$unsolved_homicides, baltimore_data$total_homicides)
+
+baltimore_results = broom::tidy(baltimore_test) %>%
+  select(estimate, conf.low, conf.high)
+
+baltimore_results
+```
+
+```{r}
+city_proportions <- homicide %>%
+  mutate(
+    test_results = map2(unsolved_homicides, total_homicides, ~ prop.test(.x, .y)),
+    tidy_results = map(test_results, broom::tidy)
+  ) %>%
+  unnest(tidy_results) %>%
+  select(city_state, estimate, conf.low, conf.high)
+
+```
+
+```{r}
+city_proportions %>%
+  mutate(city_state = fct_reorder(city_state, estimate)) %>%
+  ggplot(aes(x = city_state, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2)+
+  labs(
+    title = "Proportion of Unsolved Homicides by City",
+    x = "City",
+    y = "Proportion of Unsolved Homicides"
+  ) +
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+```
+
+  
